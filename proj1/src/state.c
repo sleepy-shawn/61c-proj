@@ -28,13 +28,14 @@ game_state_t *create_default_state() {
     return NULL;
   }
   state->num_rows = 18;
-  state->board = malloc(state->num_rows * 20 * sizeof(char));
+  state->board = malloc(state->num_rows * sizeof(char *));
   if (state->board == NULL) {
     free(state);
     return NULL;
   }
+  /*Default column num is 20, add one for '\0'*/
   for (unsigned int i = 0; i < state->num_rows; i++) {
-    state->board[i] = malloc(20 * sizeof(char));
+    state->board[i] = malloc(21 * sizeof(char));
     if (state->board[i] == NULL) {
       for (unsigned int j = 0; j < i; j++) {
         free(state->board[j]);
@@ -48,8 +49,9 @@ game_state_t *create_default_state() {
         set_board_at(state, i, j, '#');
       } else {
         set_board_at(state, i, j, ' ');
+      }
     }
-  }
+    state->board[i][20] = '\0';
   }
   state->num_snakes = 1;
   set_board_at(state, 2, 9, '*');
@@ -382,26 +384,34 @@ game_state_t *load_board(FILE *fp) {
   char * current_line = read_line(fp); 
 
   while (current_line != NULL) {
+    size_t length = strlen(current_line);
+    if (length > 0 && current_line[length -1] == '\n') {
+      current_line[length - 1] = '\0';
+    }
+
     /*If row_num is not enough*/
     if (count >= row_num) {
       char ** new_lines = realloc(lines, sizeof(char *) * row_num * 2);
       if (new_lines == NULL) {
         for (unsigned i = 0; i < count; i++) {
-        free(lines + i);
-      }
-      free(lines);
-      return NULL;
+          free(lines[i]);
+        }
+        free(lines);
+        return NULL;
       }
       lines = new_lines;
       row_num *= 2;
     }
 
-    *(lines + count) = current_line;
+    lines[count] = current_line;
     count += 1;
     current_line = read_line(fp);
   }
 
   if (count == 0) {
+    for (unsigned i = 0; i < count; i++) {
+      free(lines[i]);
+    }
     free(lines);
     return NULL;
   }
@@ -432,12 +442,66 @@ game_state_t *load_board(FILE *fp) {
   fill in the head row and col in the struct.
 */
 static void find_head(game_state_t *state, unsigned int snum) {
-  // TODO: Implement this function.
+  snake_t snake = state->snakes[snum];
+  unsigned int row = snake.tail_row;
+  unsigned int col = snake.tail_col;
+
+  char current_char = get_board_at(state, row, col);
+  while(!is_head(current_char)) {
+    if (current_char == ' ') {
+      return;
+    }
+    else {
+      row = get_next_row(row, current_char);
+      col = get_next_col(col, current_char);
+      current_char = get_board_at(state, row, col);
+    }
+  }
+  snake.head_col = col;
+  snake.head_row = row;
+  state->snakes[snum] = snake;
   return;
 }
 
 /* Task 6.2 */
 game_state_t *initialize_snakes(game_state_t *state) {
-  // TODO: Implement this function.
-  return NULL;
+  unsigned int size = 5;
+  snake_t *snakes = malloc(sizeof(snake_t) * size);
+  if (snakes == NULL) {
+    return NULL;
+  }
+
+  /*First scanning the board for initializing the snake num and find its tail*/
+  unsigned int snake_num = 0;
+
+  for (unsigned int i = 0; i < state->num_rows; i++) {
+    size_t len = strlen(state->board[i]);
+    for (unsigned int j = 0; j < (unsigned int)len; j++) {
+      if (is_tail(state->board[i][j])) {
+        /*If over-size, realloc*/
+        if (snake_num >= size) {
+          snake_t *new_snakes = realloc(snakes, sizeof(snake_t) * 2 * size);
+          if (new_snakes == NULL) {
+            free(snakes);
+            return NULL;
+          }
+          snakes = new_snakes;
+          size *= 2;
+        }
+
+        struct snake_t current_snake = {.tail_row = i, .tail_col = j, .live = true};
+        snakes[snake_num] = current_snake;
+        snake_num += 1;
+      }
+    }
+  }
+
+  /*A error fixed here, given that the snake is now null, we have to initialize snakes*/
+  state->snakes = snakes;
+  state->num_snakes = snake_num;
+  /*Second find these snakes' head*/
+  for (unsigned int t = 0; t < snake_num; t++) {
+    find_head(state, t);
+  }
+  return state;
 }
